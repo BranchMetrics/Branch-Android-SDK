@@ -18,7 +18,6 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Build;
-import android.os.Bundle;
 import android.os.Handler;
 import android.text.TextUtils;
 
@@ -39,7 +38,6 @@ import java.net.HttpURLConnection;
 import java.net.URLEncoder;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -55,6 +53,8 @@ import io.branch.referral.network.BranchRemoteInterfaceUrlConnection;
 import io.branch.referral.util.BRANCH_STANDARD_EVENT;
 import io.branch.referral.util.BranchEvent;
 import io.branch.referral.util.LinkProperties;
+import io.branch.utilities.LinkParsingKt;
+import io.branch.utilities.UniversalResourceAnalyser;
 
 /**
  * <p>
@@ -278,12 +278,6 @@ public class Branch {
     private static final int DEF_AUTO_DEEP_LINK_REQ_CODE = 1501;
 
     private static final int LATCH_WAIT_UNTIL = 2500; //used for getLatestReferringParamsSync and getFirstReferringParamsSync, fail after this many milliseconds
-    
-    /* List of keys whose values are collected from the Intent Extra.*/
-    private static final String[] EXTERNAL_INTENT_EXTRA_KEY_WHITE_LIST = new String[]{
-            "extra_launch_uri",   // Key for embedded uri in FB ads triggered intents
-            "branch_intent"       // A boolean that specifies if this intent is originated by Branch
-    };
 
     public static String installDeveloperId = null;
 
@@ -303,6 +297,9 @@ public class Branch {
     private BranchReferralInitListener deferredCallback;
     private Uri deferredUri;
     private InitSessionBuilder deferredSessionBuilder;
+
+    //Experimental
+    private ServerRequestInitSession latestInitRequest;
 
     /**
      * <p>The main constructor of the Branch class is private because the class uses the Singleton
@@ -829,6 +826,7 @@ public class Branch {
      * </p>
      */
     void closeSessionInternal() {
+        BranchLogger.v("closeSessionInternal");
         clearPartnerParameters();
         executeClose();
         prefHelper_.setSessionParams(PrefHelper.NO_STRING_VALUE);
@@ -866,7 +864,7 @@ public class Branch {
         return pluginName;
     }
 
-    private void readAndStripParam(Uri data, Activity activity) {
+    private void readAndStripParam(Uri data, Activity activity, ServerRequestInitSession initRequest) {
         BranchLogger.v("Read params uri: " + data + " bypassCurrentActivityIntentState: " + bypassCurrentActivityIntentState_ + " intent state: " + intentState_);
         if (enableInstantDeepLinking) {
 
@@ -888,21 +886,26 @@ public class Branch {
             intentState_ = INTENT_STATE.READY;
         }
 
+        //TODO: Fix this area
         if (intentState_ == INTENT_STATE.READY) {
 
             // Capture the intent URI and extra for analytics in case started by external intents such as google app search
-            extractExternalUriAndIntentExtras(data, activity);
+            LinkParsingKt.extractExternalUriAndIntentExtras(data, activity, prefHelper_, initRequest);
 
             // if branch link is detected we don't need to look for click ID or app link anymore and can terminate early
-            if (extractBranchLinkFromIntentExtra(activity)) return;
+            if (LinkParsingKt.extractBranchLinkFromIntentExtra(activity, prefHelper_, initRequest)) {
+                return;
+            }
 
             // Check for link click id or app link
             if (!isActivityLaunchedFromHistory(activity)) {
                 // if click ID is detected we don't need to look for app link anymore and can terminate early
-                if (extractClickID(data, activity)) return;
+                if (LinkParsingKt.extractClickID(data, activity, prefHelper_, initRequest)) {
+                    return;
+                }
 
                 // Check if the clicked url is an app link pointing to this app
-                extractAppLink(data, activity);
+                LinkParsingKt.extractAppLink(data, activity, prefHelper_, initRequest);
             }
         }
     }
@@ -912,13 +915,6 @@ public class Branch {
         requestQueue_.postInitClear();
         requestQueue_.unlockProcessWait(ServerRequest.PROCESS_WAIT_LOCK.SDK_INIT_WAIT_LOCK);
         requestQueue_.processNextQueueItem("unlockSDKInitWaitLock");
-    }
-    
-    private boolean isIntentParamsAlreadyConsumed(Activity activity) {
-        boolean result = activity != null && activity.getIntent() != null &&
-                activity.getIntent().getBooleanExtra(Defines.IntentKeys.BranchLinkUsed.getKey(), false);
-        BranchLogger.v("isIntentParamsAlreadyConsumed " + result);
-        return result;
     }
     
     private boolean isActivityLaunchedFromHistory(Activity activity) {
@@ -1533,15 +1529,21 @@ public class Branch {
     }
     
     void onIntentReady(@NonNull Activity activity) {
-        BranchLogger.v("onIntentReady " + activity + " removing INTENT_PENDING_WAIT_LOCK");
         setIntentState(Branch.INTENT_STATE.READY);
         requestQueue_.unlockProcessWait(ServerRequest.PROCESS_WAIT_LOCK.INTENT_PENDING_WAIT_LOCK);
+        BranchLogger.v("onIntentReady " + activity + " removed INTENT_PENDING_WAIT_LOCK");
 
-        boolean grabIntentParams = activity.getIntent() != null && getInitState() != Branch.SESSION_STATE.INITIALISED;
+        Intent currentIntent = activity.getIntent();
+        Branch.SESSION_STATE sessionState = getInitState();
+        boolean grabIntentParams = currentIntent != null &&  getInitState() != Branch.SESSION_STATE.INITIALISED;
 
+        BranchLogger.v("onIntentReady currentIntent " + currentIntent);
+        BranchLogger.v("onIntentReady sessionState " + sessionState);
+        BranchLogger.v("onIntentReady grabIntentParams " + grabIntentParams);
         if (grabIntentParams) {
             Uri intentData = activity.getIntent().getData();
-            readAndStripParam(intentData, activity);
+            // Test with multiple opens queued up
+            readAndStripParam(intentData, activity, latestInitRequest);
         }
         requestQueue_.processNextQueueItem("onIntentReady");
     }
@@ -2110,12 +2112,13 @@ public class Branch {
         }
     }
 
+    //TODO: Mark as deprecated
     private void extractSessionParamsForIDL(Uri data, Activity activity) {
         if (activity == null || activity.getIntent() == null) return;
 
         Intent intent = activity.getIntent();
         try {
-            if (data == null || isIntentParamsAlreadyConsumed(activity)) {
+            if (data == null || LinkParsingKt.isIntentParamsAlreadyConsumed(activity)) {
                 // Considering the case of a deferred install. In this case the app behaves like a cold
                 // start but still Branch can do probabilistic match. So skipping instant deep link feature
                 // until first Branch open happens.
@@ -2154,118 +2157,11 @@ public class Branch {
         }
     }
 
-    private void extractAppLink(Uri data, Activity activity) {
-        if (data == null || activity == null) return;
-
-        String scheme = data.getScheme();
-        Intent intent = activity.getIntent();
-        if (scheme != null && intent != null &&
-                (scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https")) &&
-                !TextUtils.isEmpty(data.getHost()) &&
-                !isIntentParamsAlreadyConsumed(activity)) {
-
-            String strippedUrl = UniversalResourceAnalyser.getInstance(context_).getStrippedURL(data.toString());
-
-            if (data.toString().equalsIgnoreCase(strippedUrl)) {
-                // Send app links only if URL is not skipped.
-                prefHelper_.setAppLink(data.toString());
-            }
-            intent.putExtra(Defines.IntentKeys.BranchLinkUsed.getKey(), true);
-            activity.setIntent(intent);
-        }
-    }
-
-    private boolean extractClickID(Uri data, Activity activity) {
-        try {
-            if (data == null || !data.isHierarchical()) return false;
-
-            String linkClickID = data.getQueryParameter(Defines.Jsonkey.LinkClickID.getKey());
-            if (linkClickID == null) return false;
-
-            prefHelper_.setLinkClickIdentifier(linkClickID);
-            String paramString = "link_click_id=" + linkClickID;
-            String uriString = data.toString();
-
-            if (paramString.equals(data.getQuery())) {
-                paramString = "\\?" + paramString;
-            } else if ((uriString.length() - paramString.length()) == uriString.indexOf(paramString)) {
-                paramString = "&" + paramString;
-            } else {
-                paramString = paramString + "&";
-            }
-
-            Uri uriWithoutClickID = Uri.parse(uriString.replaceFirst(paramString, ""));
-            activity.getIntent().setData(uriWithoutClickID);
-            activity.getIntent().putExtra(Defines.IntentKeys.BranchLinkUsed.getKey(), true);
-            return true;
-        } catch (Exception e) {
-            BranchLogger.d(e.getMessage());
-            return false;
-        }
-    }
-
-    private boolean extractBranchLinkFromIntentExtra(Activity activity) {
-        BranchLogger.v("extractBranchLinkFromIntentExtra " + activity);
-        //Check for any push identifier in case app is launched by a push notification
-        try {
-            if (activity != null && activity.getIntent() != null && activity.getIntent().getExtras() != null) {
-                if (!isIntentParamsAlreadyConsumed(activity)) {
-                    Object object = activity.getIntent().getExtras().get(Defines.IntentKeys.BranchURI.getKey());
-                    String branchLink = null;
-
-                    if (object instanceof String) {
-                        branchLink = (String) object;
-                    } else if (object instanceof Uri) {
-                        Uri uri = (Uri) object;
-                        branchLink = uri.toString();
-                    }
-
-                    if (!TextUtils.isEmpty(branchLink)) {
-                        prefHelper_.setPushIdentifier(branchLink);
-                        Intent thisIntent = activity.getIntent();
-                        thisIntent.putExtra(Defines.IntentKeys.BranchLinkUsed.getKey(), true);
-                        activity.setIntent(thisIntent);
-                        return true;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            BranchLogger.d(e.getMessage());
-        }
-        return false;
-    }
-
-    private void extractExternalUriAndIntentExtras(Uri data, Activity activity) {
-        BranchLogger.v("extractExternalUriAndIntentExtras " + data + " " + activity);
-        try {
-            if (!isIntentParamsAlreadyConsumed(activity)) {
-                String strippedUrl = UniversalResourceAnalyser.getInstance(context_).getStrippedURL(data.toString());
-                prefHelper_.setExternalIntentUri(strippedUrl);
-
-                if (strippedUrl.equals(data.toString())) {
-                    Bundle bundle = activity.getIntent().getExtras();
-                    Set<String> extraKeys = bundle.keySet();
-                    if (extraKeys.isEmpty()) return;
-
-                    JSONObject extrasJson = new JSONObject();
-                    for (String key : EXTERNAL_INTENT_EXTRA_KEY_WHITE_LIST) {
-                        if (extraKeys.contains(key)) {
-                            extrasJson.put(key, bundle.get(key));
-                        }
-                    }
-                    if (extrasJson.length() > 0) {
-                        prefHelper_.setExternalIntentExtra(extrasJson.toString());
-                    }
-
-                }
-            }
-        } catch (Exception e) {
-            BranchLogger.d(e.getMessage());
-        }
-    }
-
     @Nullable Activity getCurrentActivity() {
-        if (currentActivityReference_ == null) return null;
+        if (currentActivityReference_ == null) {
+            return null;
+        }
+
         return currentActivityReference_.get();
     }
 
@@ -2276,6 +2172,7 @@ public class Branch {
         private Uri uri;
         private Boolean ignoreIntent;
         private boolean isReInitializing;
+        private ServerRequestInitSession initSessionRequest;
 
         private InitSessionBuilder(Activity activity) {
             Branch branch = Branch.getInstance();
@@ -2420,11 +2317,15 @@ public class Branch {
                 PrefHelper.getInstance(activity).setInitialReferrer(ActivityCompat.getReferrer(activity).toString());
             }
 
+            ServerRequestInitSession initRequest = branch.getInstallOrOpenRequest(callback, isAutoInitialization);
+            branch.latestInitRequest = initRequest;
+            BranchLogger.d("Creating " + initRequest + " from init on thread " + Thread.currentThread().getName());
+
             if (uri != null) {
-                branch.readAndStripParam(uri, activity);
+                branch.readAndStripParam(uri, activity, initRequest);
             }
             else if (isReInitializing && branch.isRestartSessionRequested(intent)) {
-                branch.readAndStripParam(intent != null ? intent.getData() : null, activity);
+                branch.readAndStripParam(intent != null ? intent.getData() : null, activity, initRequest);
             }
             else if (isReInitializing) {
                 // User called reInit but isRestartSessionRequested = false, meaning the new intent was
@@ -2456,8 +2357,6 @@ public class Branch {
                 expectDelayedSessionInitialization(true);
             }
 
-            ServerRequestInitSession initRequest = branch.getInstallOrOpenRequest(callback, isAutoInitialization);
-            BranchLogger.d("Creating " + initRequest + " from init on thread " + Thread.currentThread().getName());
             branch.initializeSession(initRequest, delay);
         }
 

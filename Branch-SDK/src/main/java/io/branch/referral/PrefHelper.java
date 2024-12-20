@@ -264,7 +264,7 @@ public class PrefHelper {
      * @return A {@link String} variable containing the hard-coded CDN base URL that Branch uses or
      * custom CDN base URL set by the user.
      */
-    static String getCDNBaseUrl() {
+    public static String getCDNBaseUrl() {
         if (!TextUtils.isEmpty(customCDNBaseURL_)) {
             return customCDNBaseURL_;
         }
@@ -1304,8 +1304,10 @@ public class PrefHelper {
      * <p>Clears all the Branch referral shared preferences related to the current key.
      * Should be called before setting a new Branch-Key. </p>
      */
+    //TODO: Ensure no object is being read here
     private void clearPrefOnBranchKeyChange() {
         // If stored key isn't the same as the current key, we need to clean up
+        //TODO: Understand this note
         // Note: Link Click Identifier is not cleared because of the potential for that to mess up a deep link
         String linkClickID = getLinkClickID();
         String linkClickIdentifier = getLinkClickIdentifier();
@@ -1324,11 +1326,11 @@ public class PrefHelper {
         if (key == null) {
             return;
         }
-        
+
         if (this.requestMetadata.has(key) && value == null) {
             this.requestMetadata.remove(key);
         }
-        
+
         try {
             this.requestMetadata.put(key, value);
         } catch (JSONException e) {
@@ -1379,6 +1381,7 @@ public class PrefHelper {
         return installMetadata;
     }
 
+    //TODO: Remove
     /**
      * helper method to check of the modules need to be added in the requests
      *

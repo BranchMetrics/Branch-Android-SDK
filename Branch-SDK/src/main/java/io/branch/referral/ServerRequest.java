@@ -262,19 +262,23 @@ public abstract class ServerRequest {
      *             as key-value pairs.
      */
     protected void setPost(JSONObject post) throws JSONException {
-        BranchLogger.v("setPost " + post);
+        BranchLogger.v("setPost start " + post  + " " + this);
         params_ = post;
 
         if (getBranchRemoteAPIVersion() == BRANCH_API_VERSION.V1) {
+            BranchLogger.v("updateRequestWithV1Params " + this);
             DeviceInfo.getInstance().updateRequestWithV1Params(this, params_);
         }
         else {
             JSONObject userDataObj = new JSONObject();
             params_.put(Defines.Jsonkey.UserData.getKey(), userDataObj);
+            BranchLogger.v("updateRequestWithV2Params " + this);
             DeviceInfo.getInstance().updateRequestWithV2Params(this, prefHelper_, userDataObj);
         }
 
         params_.put(Defines.Jsonkey.Debug.getKey(), Branch.isDeviceIDFetchDisabled());
+
+        BranchLogger.v("setPost complete " + post  + " " + this);
     }
     
     /**

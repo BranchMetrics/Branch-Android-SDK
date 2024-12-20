@@ -1,4 +1,4 @@
-package io.branch.referral;
+package io.branch.utilities;
 
 import android.content.Context;
 import android.net.TrafficStats;
@@ -13,11 +13,14 @@ import java.io.InputStreamReader;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import javax.net.ssl.HttpsURLConnection;
+
+import io.branch.referral.BranchAsyncTask;
+import io.branch.referral.BranchLogger;
+import io.branch.referral.PrefHelper;
 
 /**
  * Created by sojanpr on 2/8/18.
@@ -27,7 +30,7 @@ import javax.net.ssl.HttpsURLConnection;
  * </p>
  */
 
-class UniversalResourceAnalyser {
+public class UniversalResourceAnalyser {
     private static JSONObject skipURLFormats;
     private final ArrayList<String> acceptURLFormats;
     private static final String SKIP_URL_FORMATS_KEY = "skip_url_format_key";
@@ -84,7 +87,7 @@ class UniversalResourceAnalyser {
         return urlFormat;
     }
     
-    void addToSkipURLFormats(String skipURLFormat) {
+    public void addToSkipURLFormats(String skipURLFormat) {
         JSONArray skipURLArray = skipURLFormats.optJSONArray(SKIP_LIST_KEY);
         try {
             if (skipURLArray == null) {
@@ -97,15 +100,15 @@ class UniversalResourceAnalyser {
         }
     }
     
-    void addToAcceptURLFormats(String acceptUrl) {
+    public void addToAcceptURLFormats(String acceptUrl) {
         acceptURLFormats.add(acceptUrl);
     }
     
-    void addToAcceptURLFormats(List<String> acceptUrls) {
+    public void addToAcceptURLFormats(List<String> acceptUrls) {
         acceptURLFormats.addAll(acceptUrls);
     }
     
-    void checkAndUpdateSkipURLFormats(Context context) {
+    public void checkAndUpdateSkipURLFormats(Context context) {
         try {
             new UrlSkipListUpdateTask(context).executeTask();
         } catch (Exception e) {
@@ -113,7 +116,7 @@ class UniversalResourceAnalyser {
         }
     }
     
-    String getStrippedURL(String url) {
+    public String getStrippedURL(String url) {
         String strippedURL = null;
         try {
             JSONArray skipURLArray = skipURLFormats.optJSONArray(SKIP_LIST_KEY);

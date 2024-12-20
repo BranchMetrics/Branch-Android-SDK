@@ -18,11 +18,12 @@ public final class CustomBranchApp extends Application {
         super.onCreate();
 
         IBranchLoggingCallbacks loggingCallbacks = (message, tag) -> {
-            Log.d("BranchTestbed", message);
+            Log.d("BranchSDK", message);
             saveLogToFile(message);
         };
         Branch.enableLogging(loggingCallbacks);
 
+        //Branch.enableLogging(BranchLogger.BranchLogLevel.VERBOSE);
         Branch.getAutoInstance(this);
     }
 
@@ -37,7 +38,7 @@ public final class CustomBranchApp extends Application {
 
             try (FileOutputStream fos = new FileOutputStream(logFile, true);
                  OutputStreamWriter writer = new OutputStreamWriter(fos)) {
-                writer.write(logMessage + "\n");
+                writer.write(logMessage + "\n\n");
             }
 
         } catch (Exception e) {
