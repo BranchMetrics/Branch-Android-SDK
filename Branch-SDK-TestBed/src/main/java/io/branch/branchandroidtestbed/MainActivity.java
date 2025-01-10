@@ -458,6 +458,13 @@ public class MainActivity extends Activity {
             }
         });
 
+        findViewById(R.id.force_quit_btn).setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                System.exit(0);
+            }
+        });
+
         ((ToggleButton) findViewById(R.id.tracking_cntrl_btn)).setOnCheckedChangeListener((buttonView, isChecked) -> {
             Branch.getInstance().disableTracking(isChecked, (trackingDisabled, referringParams, error) -> {
                 if (trackingDisabled) {

@@ -163,6 +163,14 @@
                 android:drawableStart="@drawable/ic_baseline_settings_24"
                 android:layout_marginBottom="20dp"
                 android:text="Settings" />
+
+            <Button
+                android:id="@+id/force_quit_btn"
+                style="@style/testbed_button_style"
+                android:drawableStart="@drawable/baseline_power_settings_new_24"
+                android:layout_marginBottom="20dp"
+                android:text="Force Quit App" />
+
         </LinearLayout>
 
     </ScrollView>
