@@ -102,7 +102,7 @@ jobs:
                       ./gradlew :Branch-SDK:jacocoTestReport --info
               - name: Upload Coverage Test Report
                 if: success()
-                uses: codecov/codecov-action@v3
+                uses: codecov/codecov-action@v5
                 with:
                       file: ./Branch-SDK/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml
                       fail_ci_if_error: true
